@@ -48,7 +48,7 @@ class TrainConfig:
     env_name: str = "MiniGrid-FourRooms-v1"
     batch_size: int = 256
     num_epochs: int = 3000
-    num_updates_on_epoch: int = 1000
+    num_updates_on_epoch: int = 10
     normalize_reward: bool = False
     # evaluation params
     eval_episodes: int = 10
@@ -255,9 +255,8 @@ class Actor(nn.Module):
         # This outputs the logits of the distribution over actions
         policy_probs = self.policy(hidden)
         policy_dist = torch.distributions.categorical.Categorical(probs=policy_probs)
-
         if deterministic:
-            action = torch.argmax(policy_logits)
+            action = torch.argmax(policy_probs)
         else:
             action = policy_dist.sample()
 
@@ -465,15 +464,19 @@ class SACN:
 def eval_actor(
     env: gym.Env, actor: Actor, device: str, n_episodes: int, seed: int
 ) -> np.ndarray:
-    env.seed(seed)
+    #env.seed(seed)
     actor.eval()
     episode_rewards = []
     for _ in range(n_episodes):
-        state, done = env.reset(), False
+        state, _ = env.reset(seed=seed)
+        state = state.flatten()
+        done = False
         episode_reward = 0.0
         while not done:
             action = actor.act(state, device)
-            state, reward, done, _ = env.step(action)
+            state, reward, terminated, truncated, info = env.step(action)
+            state = state.flatten()
+            done = terminated or truncated
             episode_reward += reward
         episode_rewards.append(episode_reward)
 
@@ -516,7 +519,6 @@ def train(config: TrainConfig):
     state_dim=1
     for dim in eval_env.observation_space.shape:
         state_dim *= dim
-    #state_dim = eval_env.observation_space.shape[0]
 
     #Discrete actions
     action_dim = 1
