@@ -347,10 +347,14 @@ class SACN:
 
     def _alpha_loss(self, state: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
-            action, action_probs = self.actor(state)
+            action, action_probs = self.actor(state, need_log_prob=True)
+
+        # Have to deal with situation of 0.0 probabilities because we can't do log 0
+        z = action_probs == 0.0
+        z = z.float() * 1e-8
 
         # adjusted for discrete
-        loss = (action_probs * (-self.log_alpha * (torch.log(action_probs) + self.target_entropy))).sum(-1).mean()
+        loss = (action_probs * (-self.log_alpha * (torch.log(action_probs + z) + self.target_entropy))).sum(-1).mean()
 
         return loss
 
@@ -363,7 +367,11 @@ class SACN:
         q_value_std = q_value_dist.std(0).mean().item()
         batch_entropy = -torch.distributions.Categorical(probs = action_probs).entropy().mean().item()
 
-        loss = (action_probs * (self.alpha * torch.log(action_probs) - q_value_min)).sum(-1).mean()
+        # Have to deal with situation of 0.0 probabilities because we can't do log 0
+        z = action_probs == 0.0
+        z = z.float() * 1e-8
+
+        loss = (action_probs * (self.alpha * torch.log(action_probs + z) - q_value_min)).sum(-1).mean()
 
         return loss, batch_entropy, q_value_std
 
@@ -379,8 +387,12 @@ class SACN:
             next_action, next_action_probs = self.actor(
                 next_state, need_log_prob=True
             )
+            # Have to deal with situation of 0.0 probabilities because we can't do log 0
+            z = next_action_probs == 0.0
+            z = z.float() * 1e-8
+
             q_next = self.target_critic(next_state).min(0).values
-            q_next = (next_action_probs * (q_next - self.alpha * torch.log(next_action_probs))).sum(1)
+            q_next = (next_action_probs * (q_next - self.alpha * torch.log(next_action_probs + z))).sum(1)
             assert q_next.unsqueeze(-1).shape == done.shape == reward.shape
             q_target = reward + self.gamma * (1 - done) * q_next.unsqueeze(-1)
 
